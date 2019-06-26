@@ -1,2 +1,2 @@
 # Mutation_Calling
-Nextflow pipeline for mutation_Calling 
+Nextflow pipeline for mutation Calling 
