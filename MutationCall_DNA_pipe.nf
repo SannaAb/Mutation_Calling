@@ -1,93 +1,139 @@
 #!/usr/bin/env nextflow
 
-params.fastq = ''
+params.bam = ''
 params.ref = ''
 
-//sequences = Channel.fromPath(params.fastq)
+sequences = Channel.fromPath( params.bam ).map { file -> tuple(file.baseName, file) }
+sequencesintomutationalcalling = Channel.fromPath( params.bam ).map { file -> tuple(file.baseName, file) } // You cannot use the same input twice in a channel, therefore we are copying it in twice
 
-sequences = Channel
-                .fromPath(params.fastq)
-                .map { file -> tuple(file.baseName, file) }
 
 ref_index = file(params.ref)
-params.workingDir = '/home/xabras/NextflowPractice'
 
 
 
-//----------------------Bowtie2-------------------------------
 
-process run_Bowtie2 {
-        publishDir params.workingDir, mode: 'copy', overwrite: true
-        errorStrategy 'ignore'
+//params.workingDir = '.'
+params.outdir = '/jumbo/WorkingDir/B19-057/Data/Meta/Alignment/Epidermidis/testNextflow'
 
-        clusterOptions='-pe mpi 4'
-        executor 'sge'
-        queue 'bfxcore.q@node4-bfx.medair.lcl'
 
-        module 'bowtie2/2.2.9'
-
-        input:
-		set file_ID, file(fq) from sequences
-
-        output:
-        set file_ID, file("${file_ID}_bowtie2_alignment.sam") into bowtie_out
-
-        script:
-
-        """
-		bowtie2 --sensitive -x ${ref_index} -U ${fq} -S ${file_ID}_bowtie2_alignment.sam
-        """
-}
-
+//Something is of with the transfer of the files
 
 //----------------------Samtools-------------------------------
 
-process run_Samtools {
-        publishDir params.workingDir, mode: 'copy', overwrite: true
-        errorStrategy 'ignore'
+process run_samtools {
+        publishDir params.outdir, mode: 'copy', overwrite: true
+        //errorStrategy 'ignore'
 
-	executor 'sge'
-	queue 'bfxcore.q@node4-bfx.medair.lcl'
-	cpus '1'
+        clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node4-bfx.medair.lcl'
 
         module 'samtools/1.9'
 
         input:
-		set file_ID, sam from bowtie_out
-
-        output:
-        set file_ID, "${file_ID}_*" into samtools_out
-
+	set file_ID, file(bamfile) from sequences
+	       
+	output:
+	set file_ID, "${file_ID}.*" into samtools_out
+ 
         script:
-
         """
-		samtools view -hb ${sam} > ${file_ID}_bowtie2_alignment.bam
-        samtools sort ${file_ID}_bowtie2_alignment.bam -o ${file_ID}_bowtie2_sorted.bam
-        samtools index ${file_ID}_bowtie2_sorted.bam
+	samtools index ${bamfile}
+	samtools flagstat ${bamfile} > ${file_ID}.flagstat
+	samtools idxstats ${bamfile} > ${file_ID}.idxstat
         """
 }
 
+//----------------------AddReadsGroups-------------------------------
 
-//----------------------Samtools-------------------------------
+process run_addingReadsGroups {
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+	executor 'sge'
+	queue 'bfxcore.q@node3-bfx.medair.lcl'
 
-process sort_files {
-        publishDir params.workingDir, mode: 'copy', overwrite: true
-        errorStrategy 'ignore'
+	input:
+	set file_ID, file(bamfile) from sequencesintomutationalcalling
 
-        input:
-		set file_ID, bam from samtools_out
+	output:
+        set file_ID, "${file_ID}.With_RG.bam" into rg_out
 
-        script:
+	script:
+	"""
+	java -jar /apps/bio/apps/picard/2.1.0/picard.jar AddOrReplaceReadGroups I=${bamfile} O=${file_ID}.With_RG.bam SORT_ORDER=coordinate RGID=${file_ID} RGLB=${file_ID} RGPL=illumina RGPU=${file_ID} RGSM=${file_ID} CREATE_INDEX=True
+	"""
+}
 
-        """
-        cd ${params.workingDir}
-        mkdir -p ${file_ID}
-        mv ${file_ID}*.* ${file_ID}/
-        """
+
+//----------------------RemovePCRduplicates-------------------------------
+
+process runRemovePCRdup { 
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+	executor 'sge'
+	queue 'bfxcore.q@node3-bfx.medair.lcl'
+
+	input:
+        set file_ID, file(rgbam) from rg_out
+
+	output: 
+	set file_ID, "${file_ID}.rmdup.bam" into rmdup_out1, rmdup_out2
+	
+	script: 
+	"""
+	java -Xmx4g -jar /apps/bio/apps/picard/2.1.0/picard.jar MarkDuplicates I=${rgbam} O=${file_ID}.rmdup.bam CREATE_INDEX=True M=${file_ID}.marked_dup_metrics.txt
+	"""
+
 }
 
 
 
+//----------------------RealignTargetCreator-------------------------------
+
+process run_realignTargetCreator {
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	
+	clusterOptions='-pe mpi 4'
+	executor 'sge'
+	queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(rdupbam) from rmdup_out1
+	
+	output: 
+	set file_ID, "${file_ID}.interval" into intervals
+
+	script:
+	"""
+	java -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T RealignerTargetCreator -I ${rdupbam} -o ${file_ID}.interval -R ${ref_index}
+	"""
+}
 
 
+//----------------------IndelRealignment-------------------------------
 
+process run_indelrealigner{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 4'
+	executor 'sge'
+	queue 'bfxcore.q@node6-bfx.medair.lcl'
+	
+
+	input:
+        set file_ID, file(interval) from intervals
+	file(rdupbam) from rmdup_out2
+
+	output:
+	set file_ID, "${file_ID}.realigned.bam" into realigned
+
+	script:
+	"""
+	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T IndelRealigner -R ${ref2} --targetIntervals ${interval} -I ${rdupbam} -o ${file_ID}.realigned.bam
+	"""
+}
+
+//----------------------IndelRealignment-------------------------------

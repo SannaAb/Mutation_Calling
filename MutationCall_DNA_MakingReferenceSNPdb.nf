@@ -9,8 +9,9 @@ sequencesintomutationalcalling = Channel.fromPath( params.bam ).map { file -> tu
 ref_index = file(params.ref)
 
 //params.workingDir = '.'
-params.outdir = '/jumbo/WorkingDir/B19-057/Data/Meta/Alignment/Epidermidis/testNextflow'
+//params.outdir = '/jumbo/WorkingDir/B19-057/Data/Meta/Alignment/Epidermidis/testNextflow'
 
+params.outdir = ''
 
 //Something is of with the transfer of the files
 
