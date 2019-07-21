@@ -155,8 +155,68 @@ process run_SNPcalling{
 	"""
 }
 
-
-
  
+//----------------------HardFilter-------------------------------
 
+
+process run_HardFilter{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(unfilteredvcf) from rawsnps
+
+	output:
+	set file_ID, "${file_ID}.flag.vcf" into hardfilteredsnps
+
+	script:
+	"""
+	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T VariantFiltration -R ${ref_index} --variant ${unfilteredvcf} -o ${file_ID}.flag.vcf --filterExpression "DP < 50" --filterName "LowDP" --filterExpression "QD < 2.0" --filterName "QD" --filterExpression "MQ < 40.0" --filterName "MQ"
+	"""
+}
+
+//----------------------PassedHardFilter-------------------------------
+
+process run_greppassed{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(filteredvcf) from hardfilteredsnps
+
+	output:
+	set file_ID, "${file_ID}.Passed.vcf" into passedfilteredsnps
+
+	script:
+	"""
+	grep -E '^#|PASS' ${filteredvcf} > ${file_ID}.Passed.vcf
+	"""
+}
+
+//----------------------SortingVCF-------------------------------
+
+process run_sortVCF{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+	
+	input:
+	set file_ID, file(passedvcf) from passedfilteredsnps
+
+	output:
+	set file_ID, "${file_ID}.Sorted.vcf" into sortedvcf
+	
+	script:
+	"""
+	java -jar /apps/bio/apps/picard/2.1.0/picard.jar SortVcf I=${passedvcf} O=${file_ID}.Sorted.vcf
+	"""
+}
 
