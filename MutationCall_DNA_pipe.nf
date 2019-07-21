@@ -2,19 +2,18 @@
 
 params.bam = ''
 params.ref = ''
+params.known = '' 
 
 sequences = Channel.fromPath( params.bam ).map { file -> tuple(file.baseName, file) }
 sequencesintomutationalcalling = Channel.fromPath( params.bam ).map { file -> tuple(file.baseName, file) } // You cannot use the same input twice in a channel, therefore we are copying it in twice
 
-
 ref_index = file(params.ref)
-
-
-
+ref_known = file(params.known)
 
 //params.workingDir = '.'
-params.outdir = '/jumbo/WorkingDir/B19-057/Data/Meta/Alignment/Epidermidis/testNextflow'
+//params.outdir = '/jumbo/WorkingDir/B19-057/Data/Meta/Alignment/Epidermidis/testNextflow'
 
+params.outdir = ''
 
 //Something is of with the transfer of the files
 
@@ -57,8 +56,9 @@ process run_addingReadsGroups {
 	set file_ID, file(bamfile) from sequencesintomutationalcalling
 
 	output:
-        set file_ID, "${file_ID}.With_RG.bam" into rg_out
-
+        set file_ID, "${file_ID}.With_RG.bam", "${file_ID}.With_RG.bai" into rg_out
+	
+	
 	script:
 	"""
 	java -jar /apps/bio/apps/picard/2.1.0/picard.jar AddOrReplaceReadGroups I=${bamfile} O=${file_ID}.With_RG.bam SORT_ORDER=coordinate RGID=${file_ID} RGLB=${file_ID} RGPL=illumina RGPU=${file_ID} RGSM=${file_ID} CREATE_INDEX=True
@@ -76,19 +76,17 @@ process runRemovePCRdup {
 	queue 'bfxcore.q@node3-bfx.medair.lcl'
 
 	input:
-        set file_ID, file(rgbam) from rg_out
+        set file_ID, file(rgbam), file(rgbai) from rg_out
 
 	output: 
-	set file_ID, "${file_ID}.rmdup.bam" into rmdup_out1, rmdup_out2
-	
+	set file_ID, "${file_ID}.rmdup.bam","${file_ID}.rmdup.bai" into rmdup_out1, rmdup_out2
+
 	script: 
 	"""
 	java -Xmx4g -jar /apps/bio/apps/picard/2.1.0/picard.jar MarkDuplicates I=${rgbam} O=${file_ID}.rmdup.bam CREATE_INDEX=True M=${file_ID}.marked_dup_metrics.txt
 	"""
 
 }
-
-
 
 //----------------------RealignTargetCreator-------------------------------
 
@@ -101,14 +99,14 @@ process run_realignTargetCreator {
 	queue 'bfxcore.q@node6-bfx.medair.lcl'
 
 	input:
-	set file_ID, file(rdupbam) from rmdup_out1
+	set file_ID, file(rdupbam), file(rdupbai) from rmdup_out1
 	
 	output: 
-	set file_ID, "${file_ID}.interval" into intervals
+	set file_ID, "${file_ID}.intervals" into intervals
 
 	script:
 	"""
-	java -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T RealignerTargetCreator -I ${rdupbam} -o ${file_ID}.interval -R ${ref_index}
+	java -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T RealignerTargetCreator -I ${rdupbam} -o ${file_ID}.intervals -R ${ref_index} --known ${ref_known}
 	"""
 }
 
@@ -125,15 +123,150 @@ process run_indelrealigner{
 
 	input:
         set file_ID, file(interval) from intervals
-	file(rdupbam) from rmdup_out2
+	set file_ID, file(rdupbam), file(rdupbai) from rmdup_out2
 
 	output:
-	set file_ID, "${file_ID}.realigned.bam" into realigned
+	set file_ID, "${file_ID}.realigned.bam" into realigned1, realigned2
 
 	script:
 	"""
-	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T IndelRealigner -R ${ref2} --targetIntervals ${interval} -I ${rdupbam} -o ${file_ID}.realigned.bam
+	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T IndelRealigner -R ${ref_index} --targetIntervals ${interval} -known ${ref_known} -I ${rdupbam} -o ${file_ID}.realigned.bam
 	"""
 }
 
-//----------------------IndelRealignment-------------------------------
+//----------------------BaseRecalibration-------------------------------
+
+process run_baserecalibrat{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(realbam) from realigned1
+
+	output:
+	set file_ID, "${file_ID}.grp" into grps
+
+	script:
+	"""
+	/apps/bio/apps/samtools/1.6/samtools index ${realbam}
+	
+	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T BaseRecalibrator -R ${ref_index} -knownSites ${ref_known} -I ${realbam} -o ${file_ID}.grp
+	"""
+}
+
+
+
+//----------------------PrintReads-------------------------------
+
+process run_PrintReads{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(group) from grps
+	set file_ID, file(realbam) from realigned2
+
+	output:
+	set file_ID, "${file_ID}.recal.bam" into recal
+
+	script:
+	"""
+	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T PrintReads -R ${ref_index} -I ${realbam} -BQSR ${group} -o ${file_ID}.recal.bam
+	"""
+}
+
+
+//----------------------SNPCalling-------------------------------
+
+process run_SNPcalling{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(recalbam) from recal
+
+	output:
+	set file_ID, "${file_ID}.vcf" into rawsnps
+
+	script:
+	"""
+	/apps/bio/apps/samtools/1.6/samtools index ${recalbam}
+	
+	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T HaplotypeCaller -R ${ref_index} -I ${recalbam} -o ${file_ID}.vcf
+	"""
+}
+
+ 
+//----------------------HardFilter-------------------------------
+
+
+process run_HardFilter{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(unfilteredvcf) from rawsnps
+
+	output:
+	set file_ID, "${file_ID}.flag.vcf" into hardfilteredsnps
+
+	script:
+	"""
+	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T VariantFiltration -R ${ref_index} --variant ${unfilteredvcf} -o ${file_ID}.flag.vcf --filterExpression "DP < 50" --filterName "LowDP" --filterExpression "QD < 2.0" --filterName "QD" --filterExpression "MQ < 40.0" --filterName "MQ"
+	"""
+}
+
+//----------------------PassedHardFilter-------------------------------
+
+process run_greppassed{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+
+	input:
+	set file_ID, file(filteredvcf) from hardfilteredsnps
+
+	output:
+	set file_ID, "${file_ID}.Passed.vcf" into passedfilteredsnps
+
+	script:
+	"""
+	grep -E '^#|PASS' ${filteredvcf} > ${file_ID}.Passed.vcf
+	"""
+}
+
+//----------------------SortingVCF-------------------------------
+
+process run_sortVCF{
+	publishDir params.outdir, mode: 'copy', overwrite: true
+	//errorStrategy 'ignore'
+	clusterOptions='-pe mpi 1'
+        executor 'sge'
+        queue 'bfxcore.q@node6-bfx.medair.lcl'
+	
+	input:
+	set file_ID, file(passedvcf) from passedfilteredsnps
+
+	output:
+	set file_ID, "${file_ID}.Sorted.vcf" into sortedvcf
+	
+	script:
+	"""
+	java -jar /apps/bio/apps/picard/2.1.0/picard.jar SortVcf I=${passedvcf} O=${file_ID}.Sorted.vcf
+	"""
+}
+
