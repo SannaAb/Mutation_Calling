@@ -13,7 +13,7 @@ run it as follows
 
 ```
 
-/home/xabras/.conda/envs/Nextflow/bin/nextflow run /home/xabras/Scripts/Mutation_Calling/MutationCall_DNA_MakingReferenceSNPdb.nf --bam "../*.bam" --ref /jumbo/db/Staphylococcus_epidermidis_ATCC12228/Fasta/GCF_000007645.1_ASM764v1_genomic.fna --outdir /jumbo/WorkingDir/B19-057/Data/Meta/Alignment/Epidermidis/NextflowPipe
+~/Programs/Nextflow/nextflow run /home/xabras/Scripts/Mutation_Calling/MutationCall_DNA_MakingReferenceSNPdb.nf --bam "../*.bam" --ref /jumbo/db/Staphylococcus_epidermidis_ATCC12228/Fasta/GCF_000007645.1_ASM764v1_genomic.fna --outdir /jumbo/WorkingDir/B19-057/Data/Meta/Alignment/Epidermidis/NextflowPipe
 
 ```
 
@@ -43,7 +43,7 @@ This is how you run it for example GRCH38 reference genome. The only thing that 
 
 ### Important for Roy-Users
 
-You need to specify a core that can handle qsub, for the moment not everynode can do this which will make the master worker crash (For a fact node 3 cannot qsub). Otherwise you can run it on the starting node but in that case you need to screen (and pray that the start does not crash...). 
+You need to specify a core that can handle qsub, for the moment not everynode can do this which will make the master worker crash (For a fact node 3 cannot qsub). Otherwise you can run it on the starting node but in that case you need to screen (and pray that the start node does not crash...). 
 
 Make sure you have the newest nextflow installed, atleast version 19.07.0, there is a bug where the scripts might crash by random for the master worker in the older versions. 
 
