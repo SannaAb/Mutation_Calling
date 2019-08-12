@@ -47,8 +47,8 @@ process run_addingReadsGroups {
 	//errorStrategy 'ignore'
 	clusterOptions='-pe mpi 1'
 	executor 'sge'
-	queue 'bfxcore.q@node3-bfx.medair.lcl'
-	queue 'bfxcore.q@node2-bfx.medair.lcl'
+	queue 'bfxcore.q@node7-bfx.medair.lcl'
+	queue 'bfxcore.q@node6-bfx.medair.lcl'
 
 	input:
 	set file_ID, file(bamfile) from sequencesintomutationalcalling
@@ -153,7 +153,7 @@ process run_indelrealigner{
 
 	input:
         set file_ID, file(interval) from intervals
-	set file_ID, file(splitbam) from split_bam1
+	set file_ID, file(splitbam) from split_bam2
 
 	output:
 	set file_ID, "${file_ID}.realigned.bam" into realigned1, realigned2
@@ -162,7 +162,7 @@ process run_indelrealigner{
 	"""
 	/apps/bio/apps/samtools/1.6/samtools index ${splitbam}
 
-	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T IndelRealigner -R ${ref_index} --targetIntervals ${interval} -known ${ref_known} -I ${splitbam} -o ${file_ID}.realigned.bam
+	java -Xmx10g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T IndelRealigner -R ${ref_index} --targetIntervals ${interval} -known ${ref_known} -I ${splitbam} -o ${file_ID}.realigned.bam
 
 	"""
 }
@@ -188,7 +188,7 @@ process run_baserecalibrat{
 	
 	/apps/bio/apps/samtools/1.6/samtools index ${realbam}
 
-	java -Xmx4g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T BaseRecalibrator -R ${ref_index} -knownSites ${ref_known} -I ${realbam} -o ${file_ID}.grp
+	java -Xmx10g -jar /apps/bio/apps/gatk/3.5/GenomeAnalysisTK.jar -T BaseRecalibrator -R ${ref_index} -knownSites ${ref_known} -I ${realbam} -o ${file_ID}.grp
 	"""
 }
 
