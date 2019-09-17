@@ -37,7 +37,7 @@ This is how you run it for example GRCH38 reference genome. The only thing that 
 
 ```
 
-~/Programs/Nextflow/nextflow run /home/xabras/Scripts/Mutation_Calling/MutationCall_RNA_pipe.nf --bam "/jumbo/WorkingDir/B19-053/Data/Meta/SNP_calling/Two-passAlignment/*.bam" --ref /jumbo/db/Homo_sapiens/Ensembl/GRCh38.90/WholeGenomeFasta/Homo_sapiens.GRCh38.dna.toplevel.canonical.fa --outdir /jumbo/WorkingDir/B19-053/Data/Meta/SNP_calling/NextFlow --known /jumbo/db/Homo_sapiens/Ensembl/GRCh38.90/db/Homo_sapiens_assembly38.dbsnp_withoutchr.vcf
+~/Programs/Nextflow/nextflow run /home/xabras/Scripts/Mutation_Calling/MutationCall_RNA_pipe.nf --bam "/jumbo/WorkingDir/B19-053/Data/Meta/SNP_calling/Two-passAlignment/*.bam" --ref /jumbo/db/Homo_sapiens/Ensembl/GRCh38.90/WholeGenomeFasta/Homo_sapiens.GRCh38.dna.toplevel.canonical.fa --outdir /jumbo/WorkingDir/B19-053/Data/Meta/SNP_calling/NextFlow --known /jumbo/db/Homo_sapiens/Ensembl/GRCh38.90/Homo_sapiens_assembly38.dbsnp_withoutchr.vcf
 
 ```
 
@@ -47,4 +47,16 @@ You need to specify a core that can handle qsub, for the moment not everynode ca
 
 Make sure you have the newest nextflow installed, atleast version 19.07.0, there is a bug where the scripts might crash by random for the master worker in the older versions. 
 
+### Additional Scripts 
 
+CreateCladogramBasedOnVCF.py
+
+This script creates a cladogram picture based on the vcf files that you have. You just specify which range you want to screen and which VCFs you want to use. One important note is that the script it fairly slow. I have tested it at 2M but it takes a couple of ours. 
+Output is the cladogram figure but also the R code so you can check and plot the data manually. 
+
+run it as follows
+
+```
+python CreateCladogramBasedOnVCF.py NC_007795.1:138161-140000 1.vcf 2.vcf 3.vcf 
+
+```
